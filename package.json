@@ -1,5 +1,5 @@
 {
-  "name": "whatsapp-bot",
+  "name": "cedbrasil-bot",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
@@ -7,8 +7,6 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "qrcode": "^1.5.4",
-    "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "^1.23.0"
+    "venom-bot": "^5.0.5"
   }
 }

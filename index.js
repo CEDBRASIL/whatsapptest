@@ -1,50 +1,87 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
-const QRCode = require('qrcode');
+const venom = require('venom-bot');
 const express = require('express');
+
 const app = express();
-const port = process.env.PORT || 3000;
-let latestQr = null;
+const PORT = process.env.PORT || 3000;
+let client = null;
+let qrCodeBase64 = null;
 
-app.get('/', (_, res) => res.send('🟢 Bot WhatsApp está rodando!'));
+app.use(express.json());
 
-app.get('/qr', async (_, res) => {
-    if (!latestQr) {
-        return res.status(404).send('QR Code não disponível.');
-    }
-    try {
-        const url = await QRCode.toDataURL(latestQr);
-        res.send(`<img src="${url}" />`);
-    } catch (err) {
-        res.status(500).send('Erro ao gerar QR Code.');
-    }
+app.get('/', (_, res) => {
+  res.send('Bot rodando');
 });
 
-const client = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    }
+app.get('/qrcode', (_, res) => {
+  if (qrCodeBase64) {
+    res.send(qrCodeBase64);
+  } else {
+    res.status(404).send('QR Code não disponível.');
+  }
 });
 
-client.on('qr', qr => {
-    latestQr = qr;
-    qrcode.generate(qr, { small: true });
-    console.log('⚠️ Escaneie o QR Code acima com seu WhatsApp');
+app.get('/send', async (req, res) => {
+  const para = req.query.para;
+  const mensagem = req.query.mensagem;
+  if (!para || !mensagem) {
+    return res.status(400).send('Parâmetros "para" e "mensagem" são obrigatórios.');
+  }
+  if (!client) return res.status(500).send('Bot não iniciado');
+  try {
+    await client.sendText(`${para}@c.us`, mensagem);
+    res.send('Mensagem enviada');
+  } catch (err) {
+    console.error('Erro ao enviar mensagem:', err);
+    res.status(500).send('Erro ao enviar mensagem');
+  }
 });
 
-client.on('ready', () => {
-    console.log('✅ Cliente conectado');
+app.post('/webhook', (req, res) => {
+  console.log('Webhook recebido:', req.body);
+  res.sendStatus(200);
 });
 
-client.on('message', message => {
-    if (message.body === '!curso') {
-        message.reply('📚 Cursos disponíveis na CED BRASIL: Excel PRO, Marketing Digital, ADS...');
-    }
-});
+function startBot() {
+  venom
+    .create(
+      'cedbrasil-bot',
+      (base64Qr) => {
+        qrCodeBase64 = base64Qr;
+      },
+      (statusSession) => {
+        console.log('Status da sessão:', statusSession);
+      },
+      { multidevice: true, headless: true }
+    )
+    .then((bot) => {
+      client = bot;
+      qrCodeBase64 = null; // reset after authenticated
+      bot.onMessage(async (message) => {
+        if (message.body === '!curso') {
+          await bot.sendText(
+            message.from,
+            '📚 Cursos da CED BRASIL: Excel PRO, Marketing Digital, ADS...'
+          );
+        }
+      });
 
-client.initialize();
+      bot.onStateChange((state) => {
+        console.log('Estado alterado:', state);
+        if (['DISCONNECTED', 'UNPAIRED', 'UNPAIRED_IDLE'].includes(state)) {
+          console.log('Tentando reconectar...');
+          bot.close();
+          startBot();
+        }
+      });
+    })
+    .catch((err) => {
+      console.error('Erro ao iniciar o bot:', err);
+      setTimeout(startBot, 5000);
+    });
+}
 
-app.listen(port, () => {
-    console.log(`🌐 Servidor web iniciado em http://localhost:${port}`);
+startBot();
+
+app.listen(PORT, () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
