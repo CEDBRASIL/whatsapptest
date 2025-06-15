@@ -1,9 +1,12 @@
-const venom = require('venom-bot');
+const makeWASocket = require('@whiskeysockets/baileys').default;
+const { useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
 const express = require('express');
+const qrcode = require('qrcode');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-let client = null;
+let sock = null;
 let qrCodeBase64 = null;
 
 app.use(express.json());
@@ -12,7 +15,7 @@ app.get('/', (_, res) => {
   res.send('Bot rodando');
 });
 
-app.get('/qrcode', (_, res) => {
+app.get('/qr', (_, res) => {
   if (qrCodeBase64) {
     res.send(qrCodeBase64);
   } else {
@@ -26,9 +29,9 @@ app.get('/send', async (req, res) => {
   if (!para || !mensagem) {
     return res.status(400).send('Parâmetros "para" e "mensagem" são obrigatórios.');
   }
-  if (!client) return res.status(500).send('Bot não iniciado');
+  if (!sock) return res.status(500).send('Bot não iniciado');
   try {
-    await client.sendText(`${para}@c.us`, mensagem);
+    await sock.sendMessage(`${para}@s.whatsapp.net`, { text: mensagem });
     res.send('Mensagem enviada');
   } catch (err) {
     console.error('Erro ao enviar mensagem:', err);
@@ -36,48 +39,39 @@ app.get('/send', async (req, res) => {
   }
 });
 
-app.post('/webhook', (req, res) => {
-  console.log('Webhook recebido:', req.body);
-  res.sendStatus(200);
-});
+async function startBot() {
+  const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+  sock = makeWASocket({ auth: state, printQRInTerminal: false });
 
-function startBot() {
-  venom
-    .create(
-      'cedbrasil-bot',
-      (base64Qr) => {
-        qrCodeBase64 = base64Qr;
-      },
-      (statusSession) => {
-        console.log('Status da sessão:', statusSession);
-      },
-      { multidevice: true, headless: true }
-    )
-    .then((bot) => {
-      client = bot;
-      qrCodeBase64 = null; // reset after authenticated
-      bot.onMessage(async (message) => {
-        if (message.body === '!curso') {
-          await bot.sendText(
-            message.from,
-            '📚 Cursos da CED BRASIL: Excel PRO, Marketing Digital, ADS...'
-          );
-        }
-      });
+  sock.ev.on('creds.update', saveCreds);
 
-      bot.onStateChange((state) => {
-        console.log('Estado alterado:', state);
-        if (['DISCONNECTED', 'UNPAIRED', 'UNPAIRED_IDLE'].includes(state)) {
-          console.log('Tentando reconectar...');
-          bot.close();
-          startBot();
-        }
-      });
-    })
-    .catch((err) => {
-      console.error('Erro ao iniciar o bot:', err);
-      setTimeout(startBot, 5000);
-    });
+  sock.ev.on('connection.update', async (update) => {
+    const { connection, lastDisconnect, qr } = update;
+    if (qr) {
+      qrCodeBase64 = await qrcode.toDataURL(qr);
+    }
+    if (connection === 'close') {
+      const shouldReconnect = (lastDisconnect?.error instanceof Boom) &&
+        (lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut);
+      if (shouldReconnect) {
+        console.log('Tentando reconectar...');
+        startBot();
+      }
+    } else if (connection === 'open') {
+      qrCodeBase64 = null;
+      console.log('Conectado ao WhatsApp');
+    }
+  });
+
+  sock.ev.on('messages.upsert', async (event) => {
+    for (const msg of event.messages) {
+      if (!msg.message || msg.key.fromMe) continue;
+      const texto = msg.message.conversation || msg.message.extendedTextMessage?.text;
+      if (texto === '!curso') {
+        await sock.sendMessage(msg.key.remoteJid, { text: '📚 Cursos da CED BRASIL: Excel PRO, Marketing Digital, ADS...' });
+      }
+    }
+  });
 }
 
 startBot();
