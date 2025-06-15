@@ -17,7 +17,7 @@ app.get('/', (_, res) => {
 
 app.get('/qr', (_, res) => {
   if (qrCodeBase64) {
-    res.send(qrCodeBase64);
+    res.send(`<html><body><img src="${qrCodeBase64}" alt="QR Code" /></body></html>`);
   } else {
     res.status(404).send('QR Code não disponível.');
   }
