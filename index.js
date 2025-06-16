@@ -133,6 +133,11 @@ app.get('/send', async (req, res) => {
   }
 });
 
+// Endpoint para verificações via método HEAD
+app.head('/secure', (_, res) => {
+  res.status(200).end();
+});
+
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
   sock = makeWASocket({ auth: state, printQRInTerminal: false });
