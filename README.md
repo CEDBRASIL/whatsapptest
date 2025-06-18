@@ -14,3 +14,6 @@ Servidor Node.js para envio de mensagens via WhatsApp usando Baileys.
 - `HEAD /secure` - checagem rápida que retorna `200` caso o servidor esteja ativo.
 
 Para utilizar, instale as dependências com `npm install` e inicie o servidor com `npm start`.
+
+### Respostas automáticas
+O bot se identifica como Joel e responde a saudações mesmo sem acesso à IA.
