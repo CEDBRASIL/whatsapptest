@@ -1,5 +1,5 @@
 const makeWASocket = require('@whiskeysockets/baileys').default;
-const { useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { useMultiFileAuthState, DisconnectReason, downloadMediaMessage, getContentType } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const express = require('express');
 const qrcode = require('qrcode');
@@ -7,6 +7,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { parse } = require('csv-parse/sync');
 const xlsx = require('xlsx');
+const genAI = require('@google/generative-ai');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,6 +16,16 @@ let qrCodeBase64 = null;
 const NUMBERS_FILE = 'numbers.json';
 let numbers = [];
 const upload = multer({ dest: 'uploads/' });
+const GEMINI_TOKEN = process.env.GEMINI_TOKEN;
+const genAIClient = new genAI.GoogleGenerativeAI(GEMINI_TOKEN || '');
+const textModel = genAIClient.getGenerativeModel({
+  model: 'gemini-pro',
+  systemInstruction: 'Você é um assistente virtual da CED Brasília. Responda sempre em português. Caso o usuário pergunte sobre preços ou detalhes de cursos, oriente que acesse www.cedbrasilia.com.br. Se não souber a resposta, avise que chamará um assistente humano.'
+});
+const visionModel = genAIClient.getGenerativeModel({ model: 'gemini-pro-vision' });
+const HISTORY_FILE = 'history.json';
+const HUMAN_NUMBERS = ['5561986660241', '5561998675635'];
+let conversations = {};
 
 function loadNumbers() {
   if (fs.existsSync(NUMBERS_FILE)) {
@@ -26,8 +37,69 @@ function saveNumbers() {
   fs.writeFileSync(NUMBERS_FILE, JSON.stringify(numbers, null, 2));
 }
 
+function loadHistory() {
+  if (fs.existsSync(HISTORY_FILE)) {
+    conversations = JSON.parse(fs.readFileSync(HISTORY_FILE));
+  }
+}
+
+function saveHistory() {
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify(conversations, null, 2));
+}
+
+async function notifyHumans(text) {
+  if (!sock) return;
+  for (const num of HUMAN_NUMBERS) {
+    try {
+      await sock.sendMessage(`${num}@s.whatsapp.net`, { text });
+    } catch (err) {
+      console.error('Erro ao notificar', num, err);
+    }
+  }
+}
+
+async function sendGeminiText(content, jid) {
+  if (!GEMINI_TOKEN) return 'Token do Gemini não configurado.';
+  const history = conversations[jid] || [];
+  conversations[jid] = history;
+  const chat = textModel.startChat({ history });
+  try {
+    const result = await chat.sendMessage(content);
+    const response = result.response.text();
+    history.push({ role: 'user', parts: content });
+    history.push({ role: 'model', parts: response });
+    while (history.length > 20) history.shift();
+    saveHistory();
+    if (response.toLowerCase().includes('assistente humano')) {
+      await notifyHumans(`Usuário ${jid} solicitou assistência: ${content}`);
+    }
+    return response;
+  } catch (err) {
+    console.error('Erro Gemini', err);
+    await notifyHumans(`Erro Gemini com mensagem de ${jid}: ${content}`);
+    return 'Não consegui responder sua pergunta. Vou chamar um assistente humano.';
+  }
+}
+
+async function sendGeminiImage(buffer, mime, caption, jid) {
+  if (!GEMINI_TOKEN) return 'Token do Gemini não configurado.';
+  try {
+    const base64 = buffer.toString('base64');
+    const parts = [];
+    if (caption) parts.push({ text: caption });
+    parts.push({ inlineData: { data: base64, mimeType: mime } });
+    const result = await visionModel.generateContent({ contents: [{ role: 'user', parts }] });
+    return result.response.text();
+  } catch (err) {
+    console.error('Erro Gemini visão', err);
+    await notifyHumans(`Erro ao analisar imagem de ${jid}`);
+    return 'Não consegui analisar a imagem. Vou solicitar ajuda de um assistente humano.';
+  }
+}
+
 app.use(express.json());
 loadNumbers();
+loadHistory();
 
 app.get('/', (_, res) => {
   res.send('Bot rodando');
@@ -165,9 +237,33 @@ async function startBot() {
   sock.ev.on('messages.upsert', async (event) => {
     for (const msg of event.messages) {
       if (!msg.message || msg.key.fromMe) continue;
-      const texto = msg.message.conversation || msg.message.extendedTextMessage?.text;
+      const jid = msg.key.remoteJid;
+      const messageType = getContentType(msg.message);
+      const texto = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+
       if (texto === '!curso') {
-        await sock.sendMessage(msg.key.remoteJid, { text: '📚 Cursos da CED BRASIL: Excel PRO, Marketing Digital, ADS...' });
+        await sock.sendMessage(jid, { text: '📚 Cursos da CED BRASIL: Excel PRO, Marketing Digital, ADS...' });
+        continue;
+      }
+
+      if (messageType === 'imageMessage') {
+        try {
+          const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: sock.logger, reuploadRequest: sock.updateMediaMessage });
+          const mime = msg.message.imageMessage.mimetype;
+          const caption = msg.message.imageMessage.caption || texto;
+          const resposta = await sendGeminiImage(buffer, mime, caption, jid);
+          await sock.sendMessage(jid, { text: resposta });
+        } catch (err) {
+          console.error('Erro ao processar imagem', err);
+          await sock.sendMessage(jid, { text: 'Não consegui analisar sua imagem. Chamarei um assistente humano.' });
+          await notifyHumans(`Falha ao processar imagem enviada por ${jid}`);
+        }
+        continue;
+      }
+
+      if (texto) {
+        const resposta = await sendGeminiText(texto, jid);
+        await sock.sendMessage(jid, { text: resposta });
       }
     }
   });
