@@ -20,7 +20,7 @@ const GEMINI_TOKEN = process.env.GEMINI_TOKEN;
 const genAIClient = new genAI.GoogleGenerativeAI(GEMINI_TOKEN || '');
 const textModel = genAIClient.getGenerativeModel({
   model: 'gemini-pro',
-  systemInstruction: 'Você é um assistente virtual da CED Brasília. Responda sempre em português. Caso o usuário pergunte sobre preços ou detalhes de cursos, oriente que acesse www.cedbrasilia.com.br. Se não souber a resposta, avise que chamará um assistente humano.'
+  systemInstruction: 'Você é Joel, o assistente virtual da CED Brasília. Responda sempre em português e se apresente como Joel em suas mensagens. Caso o usuário pergunte sobre preços ou detalhes de cursos, oriente que acesse www.cedbrasilia.com.br. Se não souber a resposta, avise que chamará um assistente humano.'
 });
 const visionModel = genAIClient.getGenerativeModel({ model: 'gemini-pro-vision' });
 const HISTORY_FILE = 'history.json';
@@ -57,9 +57,20 @@ async function notifyHumans(text) {
     }
   }
 }
+function manualResponse(text) {
+  const lower = text.toLowerCase();
+  const greetings = ["ola", "olá", "oi", "bom dia", "boa tarde", "boa noite"];
+  if (greetings.some(g => lower.includes(g))) {
+    return "Olá! Eu sou Joel, assistente virtual da CED Brasília. Em que posso ajudar?";
+  }
+  return null;
+}
+
 
 async function sendGeminiText(content, jid) {
-  if (!GEMINI_TOKEN) return 'Token do Gemini não configurado.';
+  const manual = manualResponse(content);
+  if (manual) return manual;
+  if (!GEMINI_TOKEN) return 'Olá! Eu sou Joel, assistente virtual da CED Brasília. No momento não consigo acessar a IA e chamarei um assistente humano.';
   const history = conversations[jid] || [];
   conversations[jid] = history;
   const chat = textModel.startChat({ history });
@@ -77,12 +88,12 @@ async function sendGeminiText(content, jid) {
   } catch (err) {
     console.error('Erro Gemini', err);
     await notifyHumans(`Erro Gemini com mensagem de ${jid}: ${content}`);
-    return 'Não consegui responder sua pergunta. Vou chamar um assistente humano.';
+    return 'Desculpe, não consegui responder agora. Vou chamar um assistente humano.';
   }
 }
 
 async function sendGeminiImage(buffer, mime, caption, jid) {
-  if (!GEMINI_TOKEN) return 'Token do Gemini não configurado.';
+  if (!GEMINI_TOKEN) return 'Olá! Eu sou Joel, assistente virtual da CED Brasília. No momento não consigo analisar imagens, então chamarei um assistente humano.';
   try {
     const base64 = buffer.toString('base64');
     const parts = [];
