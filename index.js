@@ -132,6 +132,39 @@ app.get('/numbers', (_, res) => {
   res.json(numbers);
 });
 
+// Lista todos os grupos que o bot participa
+app.get('/grupos', async (_, res) => {
+  if (!sock) return res.status(500).send('Bot não iniciado');
+  try {
+    const grupos = await sock.groupFetchAllParticipating();
+    const lista = Object.values(grupos).map(g => ({ id: g.id, nome: g.subject }));
+    res.json(lista);
+  } catch (err) {
+    console.error('Erro ao listar grupos:', err);
+    res.status(500).send('Erro ao listar grupos');
+  }
+});
+
+// Mostra os integrantes de um grupo específico
+app.get('/grupos/:nome', async (req, res) => {
+  if (!sock) return res.status(500).send('Bot não iniciado');
+  const nome = req.params.nome.toLowerCase();
+  try {
+    const grupos = await sock.groupFetchAllParticipating();
+    const grupo = Object.values(grupos).find(g => g.subject.toLowerCase() === nome);
+    if (!grupo) return res.status(404).send('Grupo não encontrado');
+    const meta = await sock.groupMetadata(grupo.id);
+    const participantes = meta.participants.map(p => ({
+      numero: p.id.split('@')[0],
+      admin: !!p.admin
+    }));
+    res.json({ id: meta.id, nome: meta.subject, participantes });
+  } catch (err) {
+    console.error('Erro ao obter informações do grupo:', err);
+    res.status(500).send('Erro ao obter informações do grupo');
+  }
+});
+
 app.post('/add-number', (req, res) => {
   const numero = req.body.numero;
   if (!numero) return res.status(400).send('Número é obrigatório');
