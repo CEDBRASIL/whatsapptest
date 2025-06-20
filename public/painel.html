@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Painel CEDBrasil</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<nav>
+  <button id="tab-disparos" class="active">Disparos de mensagens</button>
+  <button id="tab-leads">Gerador de Leads</button>
+</nav>
+<section id="disparos" class="tab">
+  <h1>Disparos de mensagens</h1>
+  <textarea id="numeros" placeholder="Digite os números separados por vírgula"></textarea>
+  <input id="mensagem" placeholder="Mensagem" />
+  <div class="actions">
+    <button id="iniciar">Iniciar</button>
+    <button id="pausar">Pausar</button>
+    <button id="continuar">Continuar</button>
+  </div>
+</section>
+<section id="leads" class="tab hidden">
+  <h1>Gerador de Leads</h1>
+  <div id="grupos"></div>
+  <div id="participantes" class="hidden">
+    <h2 id="grupo-nome"></h2>
+    <ul id="lista-numeros"></ul>
+    <button id="exportar-csv">Exportar CSV</button>
+    <button id="exportar-xlsx">Exportar XLSX</button>
+  </div>
+</section>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="/painel.js"></script>
+</body>
+</html>
