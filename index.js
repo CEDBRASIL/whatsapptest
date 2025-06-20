@@ -17,6 +17,46 @@ const NUMBERS_FILE = 'numbers.json';
 let numbers = [];
 const upload = multer({ dest: 'uploads/' });
 
+const disparoState = {
+  running: false,
+  paused: false,
+  index: 0,
+  numbers: [],
+  mensagem: '',
+  timer: null
+};
+
+function formatNumero(n) {
+  n = String(n).replace(/\D/g, '');
+  if (n.startsWith('55') && n.length === 13 && n[4] === '9') {
+    n = n.slice(0, 4) + n.slice(5);
+  }
+  return n;
+}
+
+async function sendToApi(numero, mensagem) {
+  const url = `https://whatsapptest-stij.onrender.com/send?para=${numero}&mensagem=${encodeURIComponent(mensagem)}`;
+  try {
+    await fetch(url);
+  } catch (err) {
+    console.error('Falha ao enviar', numero, err);
+  }
+}
+
+function sendNext() {
+  if (!disparoState.running || disparoState.paused) return;
+  if (disparoState.index >= disparoState.numbers.length) {
+    disparoState.running = false;
+    return;
+  }
+  const num = disparoState.numbers[disparoState.index];
+  sendToApi(num, disparoState.mensagem).finally(() => {
+    disparoState.index++;
+    const delay = Math.floor(Math.random() * (210 - 30 + 1) + 30) * 1000;
+    disparoState.timer = setTimeout(sendNext, delay);
+  });
+}
+
 function loadNumbers() {
   if (fs.existsSync(NUMBERS_FILE)) {
     numbers = JSON.parse(fs.readFileSync(NUMBERS_FILE));
@@ -48,6 +88,10 @@ function getAllFiles(dir, base = dir) {
 
 
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('/painel', (_, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'painel.html'));
+});
 loadNumbers();
 
 app.get('/', (_, res) => {
@@ -166,6 +210,34 @@ app.post('/disparo', async (req, res) => {
     }
   })();
   res.send('Disparo iniciado');
+});
+
+app.post('/disparar', (req, res) => {
+  const { numeros, mensagem } = req.body;
+  if (!numeros || !mensagem) return res.status(400).send('Números e mensagem são obrigatórios');
+  disparoState.numbers = numeros.split(',').map(n => formatNumero(n.trim())).filter(Boolean);
+  disparoState.mensagem = mensagem;
+  disparoState.index = 0;
+  disparoState.paused = false;
+  disparoState.running = true;
+  clearTimeout(disparoState.timer);
+  sendNext();
+  res.send('Disparo iniciado');
+});
+
+app.post('/pausar', (_, res) => {
+  if (!disparoState.running) return res.status(400).send('Nenhum disparo em andamento');
+  disparoState.paused = true;
+  clearTimeout(disparoState.timer);
+  res.send('Disparo pausado');
+});
+
+app.post('/continuar', (_, res) => {
+  if (!disparoState.running) return res.status(400).send('Nenhum disparo em andamento');
+  if (!disparoState.paused) return res.status(400).send('Disparo não está pausado');
+  disparoState.paused = false;
+  sendNext();
+  res.send('Disparo retomado');
 });
 
 app.get('/qr', (_, res) => {
