@@ -7,6 +7,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { parse } = require('csv-parse/sync');
 const xlsx = require('xlsx');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -24,6 +25,24 @@ function loadNumbers() {
 
 function saveNumbers() {
   fs.writeFileSync(NUMBERS_FILE, JSON.stringify(numbers, null, 2));
+}
+
+function getAllFiles(dir, base = dir) {
+  const result = {};
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      Object.assign(result, getAllFiles(full, base));
+    } else {
+      try {
+        const rel = path.relative(base, full);
+        result[rel] = fs.readFileSync(full, 'utf8');
+      } catch (err) {
+        result[rel] = '[binary]';
+      }
+    }
+  }
+  return result;
 }
 
 
@@ -49,6 +68,11 @@ app.post('/connect', (_, res) => {
 
 app.get('/numbers', (_, res) => {
   res.json(numbers);
+});
+
+app.get('/info', (_, res) => {
+  const data = getAllFiles(__dirname);
+  res.json(data);
 });
 
 // Lista todos os grupos que o bot participa
