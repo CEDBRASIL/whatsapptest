@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 3000;
 let sock = null;
 let qrCodeBase64 = null;
 const NUMBERS_FILE = 'numbers.json';
+const STATUS_NUMBER = '556186660241';
 let numbers = [];
 const upload = multer({ dest: 'uploads/' });
 
@@ -40,6 +41,14 @@ async function sendToApi(numero, mensagem) {
     await fetch(url);
   } catch (err) {
     console.error('Falha ao enviar', numero, err);
+  }
+}
+
+function sendStatus() {
+  if (sock && sock.user) {
+    sendToApi(STATUS_NUMBER, 'API ON');
+  } else {
+    sendToApi(STATUS_NUMBER, 'API OFF');
   }
 }
 
@@ -281,8 +290,9 @@ async function startBot() {
       qrCodeBase64 = await qrcode.toDataURL(qr);
     }
     if (connection === 'close') {
-      const shouldReconnect = (lastDisconnect?.error instanceof Boom) &&
-        (lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut);
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      sendToApi(STATUS_NUMBER, 'API OFF');
       if (shouldReconnect) {
         console.log('Tentando reconectar...');
         startBot();
@@ -290,12 +300,15 @@ async function startBot() {
     } else if (connection === 'open') {
       qrCodeBase64 = null;
       console.log('Conectado ao WhatsApp');
+      sendToApi(STATUS_NUMBER, 'API ON');
     }
   });
 
 }
 
 startBot();
+sendStatus();
+setInterval(sendStatus, 24 * 60 * 60 * 1000);
 
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);

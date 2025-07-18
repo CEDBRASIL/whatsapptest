@@ -1,0 +1,2 @@
+User requested periodic status messages every 24h and notifications on WhatsApp connection changes.
+Implemented sendStatus function and event hooks.
